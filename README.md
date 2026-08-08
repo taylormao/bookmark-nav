@@ -13,6 +13,27 @@
 - 🏷 **标签**:书签支持多标签,搜索时一并匹配
 - 📱 **移动端适配**:前后台均适配小屏幕
 
+## 浏览器插件
+
+Bookmark Nav 配套浏览器插件，支持一键将当前页面保存到你的 Bookmark Nav 书签库。
+
+### 功能
+
+- 点击插件图标弹出面板，快速添加当前页面为书签
+- 自动填充标题、URL、页面图标
+- 支持选择分类和设置公开/私密可见性
+- 与 Bookmark Nav 后端无缝配合，通过 Cookie 认证
+
+### 安装
+
+1. 下载插件包：[bookmark-nav-extension-v2.0.0.zip](./extension/bookmark-nav-extension-v2.0.0.zip) 并解压到本地目录
+2. 打开 Chrome/Edge 浏览器，进入 `chrome://extensions`（或 `edge://extensions`）
+3. 开启右上角 **开发者模式**
+4. 点击 **加载已解压的扩展程序**，选择解压后的文件夹
+5. 点击插件图标，在弹出面板中登录你的 Bookmark Nav 账号即可使用
+
+> 插件通过 `credentials: 'include'` 自动携带认证 Cookie，无需手动配置 Token。
+
 ## 部署
 
 1. 点击本仓库右上角 **Fork**
