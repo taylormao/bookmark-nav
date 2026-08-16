@@ -172,6 +172,91 @@ export function useFetchMetadata() {
 	});
 }
 
+export function useFetchMetadataAI() {
+	return useMutation({
+		mutationFn: async (url: string) => {
+			const res = await client.api.admin["metadata-ai"].$post({ json: { url } });
+			if (!res.ok) {
+				const body = (await res.json().catch(() => null)) as { error?: string } | null;
+				throw new Error(body?.error ?? "AI 分析失败");
+			}
+			return res.json() as Promise<{
+				title: string | null;
+				description: string | null;
+				icon: string | null;
+				tags: string[];
+				categoryId: number | null;
+			}>;
+		},
+		onError: (e) => toast.error(e.message),
+	});
+}
+
+export function useSuggestTags() {
+	return useMutation({
+		mutationFn: async (input: { title: string; description?: string; url?: string }) => {
+			const res = await client.api.admin["suggest-tags"].$post({ json: input });
+			if (!res.ok) {
+				const body = (await res.json().catch(() => null)) as { error?: string } | null;
+				throw new Error(body?.error ?? "AI 标签推荐失败");
+			}
+			return res.json() as Promise<{ tags: string[] }>;
+		},
+		onError: (e) => toast.error(e.message),
+	});
+}
+
+export function useSuggestCategory() {
+	return useMutation({
+		mutationFn: async (input: { title: string; description?: string; url?: string }) => {
+			const res = await client.api.admin["suggest-category"].$post({ json: input });
+			if (!res.ok) {
+				const body = (await res.json().catch(() => null)) as { error?: string } | null;
+				throw new Error(body?.error ?? "AI 分类建议失败");
+			}
+			return res.json() as Promise<{
+				categoryId: number | null;
+				categoryName: string | null;
+				isNew: boolean;
+				reason: string;
+			}>;
+		},
+		onError: (e) => toast.error(e.message),
+	});
+}
+
+export function useRepairLink() {
+	return useMutation({
+		mutationFn: async (input: { title: string; url: string }) => {
+			const res = await client.api.admin["repair-link"].$post({ json: input });
+			if (!res.ok) {
+				const body = (await res.json().catch(() => null)) as { error?: string } | null;
+				throw new Error(body?.error ?? "AI 死链修复失败");
+			}
+			return res.json() as Promise<{
+				alternative: string | null;
+				wayback: string;
+				reason: string;
+			}>;
+		},
+		onError: (e) => toast.error(e.message),
+	});
+}
+
+export function useSummarize() {
+	return useMutation({
+		mutationFn: async (input: { title: string; description?: string; url?: string }) => {
+			const res = await client.api.admin.summarize.$post({ json: input });
+			if (!res.ok) {
+				const body = (await res.json().catch(() => null)) as { error?: string } | null;
+				throw new Error(body?.error ?? "AI 摘要生成失败");
+			}
+			return res.json() as Promise<{ summary: string }>;
+		},
+		onError: (e) => toast.error(e.message),
+	});
+}
+
 // 批量移动书签到指定分类(null = 未分类)
 export function useBatchMoveBookmarks() {
 	const invalidate = useInvalidate();
@@ -305,6 +390,8 @@ export function useSaveSettings() {
 			await Promise.all([
 				qc.invalidateQueries({ queryKey: ["admin-settings"] }),
 				qc.invalidateQueries({ queryKey: ["site-settings"] }),
+				// 让前台(首页)AI 配置立即失效,返回前台无需手动刷新即可看到 AI 开关
+				qc.invalidateQueries({ queryKey: ["ai-config"] }),
 			]);
 			toast.success("已保存");
 		},
@@ -341,5 +428,65 @@ export function useChangeUsername() {
 			toast.success("用户名已修改");
 		},
 		onError: (e) => toast.error(e.message),
+	});
+}
+
+export type AIUsageFeatureStat = {
+	feature: string;
+	total: number;
+	success: number;
+};
+export type AIUsageProviderStat = { provider: string; total: number };
+export type AIUsageError = {
+	feature: string;
+	provider: string;
+	error: string | null;
+	createdAt: number;
+};
+export type AIUsage = {
+	today: {
+		total: number;
+		success: number;
+		failed: number;
+		successRate: number;
+		avgDurationMs: number;
+	};
+	byFeature: AIUsageFeatureStat[];
+	byProvider: AIUsageProviderStat[];
+	recentErrors: AIUsageError[];
+};
+
+export function useAIUsage() {
+	return useQuery<AIUsage>({
+		queryKey: ["admin-ai-usage"],
+		queryFn: async () => {
+			const res = await client.api.admin["ai-usage"].$get();
+			if (!res.ok) throw new Error("加载 AI 用量失败");
+			return res.json();
+		},
+		refetchInterval: 30_000,
+	});
+}
+
+export type AITestConfig = {
+	provider: "builtin" | "custom";
+	apiEndpoint?: string;
+	apiKey?: string;
+	model: string;
+};
+
+export function useTestAI() {
+	return useMutation({
+		mutationFn: async (cfg: AITestConfig) => {
+			const res = await client.api.admin["ai-test"].$post({ json: cfg });
+			const body = (await res.json().catch(() => null)) as
+				| { ok: true }
+				| { ok: false; error?: string }
+				| null;
+			if (!res.ok || !body?.ok) {
+				throw new Error(body && "error" in body && body.error ? body.error : "检测失败");
+			}
+			return body;
+		},
 	});
 }

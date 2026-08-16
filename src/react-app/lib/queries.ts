@@ -48,3 +48,15 @@ export function useSiteSettings() {
 		staleTime: 5 * 60_000,
 	});
 }
+
+export function useAISearchConfig() {
+	return useQuery({
+		queryKey: ["ai-config"],
+		queryFn: async () => {
+			const res = await client.api.public["ai-config"].$get();
+			if (!res.ok) return { aiEnabled: false, semanticSearch: false };
+			return res.json() as Promise<{ aiEnabled: boolean; semanticSearch: boolean }>;
+		},
+		staleTime: 5 * 60_000,
+	});
+}

@@ -89,3 +89,16 @@ export const settings = sqliteTable("settings", {
 	key: text("key").primaryKey(),
 	value: text("value").notNull(),
 });
+
+// AI 调用用量记录(免费额度防刷 + 自定义 API 防滥用)
+export const aiUsage = sqliteTable("ai_usage", {
+	id: integer("id").primaryKey({ autoIncrement: true }),
+	feature: text("feature").notNull(),
+	provider: text("provider").notNull(),
+	success: integer("success").notNull(),
+	durationMs: integer("duration_ms"),
+	error: text("error"),
+	createdAt: integer("created_at", { mode: "timestamp" })
+		.notNull()
+		.default(sql`(unixepoch())`),
+});

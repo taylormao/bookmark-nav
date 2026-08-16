@@ -1,8 +1,20 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Bookmark, FolderTree, Home, LogOut, Menu, Settings, Share2 } from "lucide-react";
+import {
+	Bookmark,
+	FolderTree,
+	Home,
+	LogOut,
+	Menu,
+	PanelLeftClose,
+	PanelLeftOpen,
+	Settings,
+	Share2,
+	Shield,
+	Palette,
+	Sparkles,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ThemeToggle } from "@/components/theme-toggle";
 import {
 	Sheet,
 	SheetContent,
@@ -18,10 +30,20 @@ const navItems = [
 	{ to: "/admin/categories", end: false, icon: FolderTree, label: "分类管理" },
 	{ to: "/admin/import-export", end: false, icon: Share2, label: "导入导出" },
 	{ to: "/admin/settings", end: false, icon: Settings, label: "站点设置" },
+	{ to: "/admin/appearance", end: false, icon: Palette, label: "外观设置" },
+	{ to: "/admin/security", end: false, icon: Shield, label: "安全设置" },
+	{ to: "/admin/ai", end: false, icon: Sparkles, label: "AI 设置" },
 ];
 
 // 侧栏/抽屉共用的导航内容
-function NavContent({ onNavigate }: { onNavigate?: () => void }) {
+// collapsed: 仅桌面折叠态使用,隐藏文字只留图标(移动端抽屉始终传 false)
+function NavContent({
+	onNavigate,
+	collapsed = false,
+}: {
+	onNavigate?: () => void;
+	collapsed?: boolean;
+}) {
 	const navigate = useNavigate();
 	const logout = useLogout();
 	return (
@@ -32,37 +54,50 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
 						key={to}
 						to={to}
 						end={end}
+						title={collapsed ? label : undefined}
 						onClick={onNavigate}
 						className={({ isActive }) =>
 							cn(
 								"flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors",
+								collapsed && "justify-center px-0",
 								isActive
 									? "bg-primary text-primary-foreground"
 									: "text-muted-foreground hover:bg-muted hover:text-foreground",
 							)
 						}
 					>
-						<Icon className="size-4" />
-						{label}
+						<Icon className="size-4 shrink-0" />
+						{!collapsed && label}
 					</NavLink>
 				))}
 			</nav>
 			<div className="flex flex-col gap-1 border-t pt-3">
-				<Button variant="ghost" size="sm" className="justify-start" asChild>
-					<Link to="/" onClick={onNavigate}>
-						<Home className="size-4" /> 返回前台
+				<Button
+					variant="ghost"
+					size="sm"
+					className={cn("justify-start", collapsed && "justify-center px-0")}
+					asChild
+				>
+					<Link to="/" onClick={onNavigate} title={collapsed ? "返回前台" : undefined}>
+						<Home className="size-4 shrink-0" />
+						{!collapsed && "返回前台"}
 					</Link>
 				</Button>
 				<Button
 					variant="ghost"
 					size="sm"
-					className="justify-start text-muted-foreground"
+					className={cn(
+						"justify-start text-muted-foreground",
+						collapsed && "justify-center px-0",
+					)}
+					title={collapsed ? "退出登录" : undefined}
 					onClick={async () => {
 						await logout.mutateAsync();
 						navigate("/");
 					}}
 				>
-					<LogOut className="size-4" /> 退出登录
+					<LogOut className="size-4 shrink-0" />
+					{!collapsed && "退出登录"}
 				</Button>
 			</div>
 		</>
@@ -74,6 +109,7 @@ export default function AdminLayout() {
 	const location = useLocation();
 	const { data: auth, isLoading } = useAuthStatus();
 	const [drawerOpen, setDrawerOpen] = useState(false);
+	const [collapsed, setCollapsed] = useState(false);
 
 	// 当前路由对应的页面标题,显示在固定顶栏
 	const currentTitle =
@@ -114,24 +150,43 @@ export default function AdminLayout() {
 					</SheetContent>
 				</Sheet>
 				<span className="font-bold">{currentTitle}</span>
-				<div className="ml-auto">
-					<ThemeToggle />
-				</div>
 			</header>
 
-			{/* 桌面侧栏:固定不动,菜单过长时自身滚动 */}
-			<aside className="hidden w-56 shrink-0 flex-col overflow-y-auto border-r bg-background p-4 md:flex">
-				<div className="mb-6 px-2 text-lg font-bold">后台管理</div>
-				<NavContent />
+			{/* 桌面侧栏:固定不动,菜单过长时自身滚动;可折叠为纯图标窄栏 */}
+			<aside
+				className={cn(
+					"hidden shrink-0 flex-col overflow-y-auto border-r bg-background p-4 transition-[width] duration-200 md:flex",
+					collapsed ? "w-16" : "w-56",
+				)}
+			>
+				<div
+					className={cn(
+						"mb-6 flex items-center px-2",
+						collapsed ? "justify-center" : "justify-between",
+					)}
+				>
+					{!collapsed && <span className="text-lg font-bold">后台管理</span>}
+					<Button
+						variant="ghost"
+						size="icon"
+						className="size-8 shrink-0"
+						aria-label={collapsed ? "展开侧栏" : "折叠侧栏"}
+						onClick={() => setCollapsed((v) => !v)}
+					>
+						{collapsed ? (
+							<PanelLeftOpen className="size-4" />
+						) : (
+							<PanelLeftClose className="size-4" />
+						)}
+					</Button>
+				</div>
+				<NavContent collapsed={collapsed} />
 			</aside>
 
 			{/* 内容列:固定顶栏显示当前页标题,下方内容独立滚动(min-h-0 保证 flex 子项可收缩出滚动区) */}
 			<div className="flex min-h-0 min-w-0 flex-1 flex-col">
 				<header className="hidden h-14 shrink-0 items-center border-b bg-background px-6 md:flex">
 					<h1 className="text-lg font-bold">{currentTitle}</h1>
-					<div className="ml-auto">
-						<ThemeToggle />
-					</div>
 				</header>
 				<main className="flex-1 overflow-y-auto p-4 md:p-6">
 					<Outlet />

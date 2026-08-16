@@ -1,16 +1,16 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Globe, Lock, Pin, Search, Settings, LogOut, User } from "lucide-react";
+import { Globe, Lock, Pin, Search, Settings, LogOut, User, Sparkles, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ThemeToggle } from "@/components/theme-toggle";
 import {
 	client,
 	bookmarkIcon,
@@ -18,7 +18,7 @@ import {
 	type Bookmark,
 	type Category,
 } from "@/lib/api";
-import { useAuthStatus, useLogout, useNavData, useSiteSettings } from "@/lib/queries";
+import { useAuthStatus, useLogout, useNavData, useSiteSettings, useAISearchConfig } from "@/lib/queries";
 
 function BookmarkCard({ bookmark }: { bookmark: Bookmark }) {
 	const icon = bookmarkIcon(bookmark);
@@ -83,24 +83,42 @@ export default function Home() {
 	const { data: auth } = useAuthStatus();
 	const { data, isLoading, isError } = useNavData();
 	const { data: site } = useSiteSettings();
+	const { data: aiConfig } = useAISearchConfig();
 	const logout = useLogout();
 	const [keyword, setKeyword] = useState("");
+	const [aiSearch, setAiSearch] = useState(false);
+	const [aiResults, setAiResults] = useState<Bookmark[] | null>(null);
+	const [aiLoading, setAiLoading] = useState(false);
 
 	const siteName = site?.siteName || "书签导航";
 
-	// 前端本地过滤:数据量小,无需请求搜索接口
-	const filtered = useMemo(() => {
-		if (!data) return [];
-		const kw = keyword.trim().toLowerCase();
-		if (!kw) return data.bookmarks;
-		return data.bookmarks.filter(
-			(b) =>
-				b.title.toLowerCase().includes(kw) ||
-				(b.description ?? "").toLowerCase().includes(kw) ||
-				b.url.toLowerCase().includes(kw) ||
-				b.tags.some((t) => t.toLowerCase().includes(kw)),
-		);
-	}, [data, keyword]);
+	// AI 语义搜索(请求后端 /api/public/search/semantic)
+	async function runAISearch(q: string) {
+		if (!q.trim() || !aiConfig?.semanticSearch) return;
+		setAiLoading(true);
+		try {
+			const res = await client.api.public["search"].semantic.$get({ query: { q } });
+			if (res.ok) {
+				const body = (await res.json()) as { bookmarks: Bookmark[] };
+				setAiResults(body.bookmarks);
+			} else {
+				setAiResults(null);
+			}
+		} catch {
+			setAiResults(null);
+		} finally {
+			setAiLoading(false);
+		}
+	}
+
+	// 关闭 AI 或清空关键词时回到本地过滤
+	useEffect(() => {
+		if (!aiSearch || !keyword.trim()) setAiResults(null);
+	}, [aiSearch, keyword]);
+
+	// 实际展示结果:AI 搜索优先,否则本地过滤
+	const displayBookmarks = aiResults ?? (data?.bookmarks ?? []);
+	const aiActive = aiSearch && aiResults !== null;
 
 	// 分类树按深度优先拍平成小节,子分类标题显示父级路径前缀(超过两级省略为 … / 上级)
 	const grouped = useMemo(() => {
@@ -122,7 +140,7 @@ export default function Home() {
 		});
 		const uncategorized: Bookmark[] = [];
 		const byId = new Map(groups.map((g) => [g.category!.id, g]));
-		for (const b of filtered) {
+		for (const b of displayBookmarks) {
 			const g = b.categoryId !== null ? byId.get(b.categoryId) : undefined;
 			if (g) g.items.push(b);
 			else uncategorized.push(b);
@@ -130,27 +148,16 @@ export default function Home() {
 		if (uncategorized.length > 0)
 			groups.push({ category: null, parentPath: "", items: uncategorized });
 		return groups.filter((g) => g.items.length > 0);
-	}, [data, filtered]);
+	}, [data, displayBookmarks]);
 
 	return (
 		<div className="min-h-screen bg-background">
 			<header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur">
-				<div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-3 gap-y-0 px-4 py-2 sm:h-14 sm:flex-nowrap sm:py-0">
+				<div className="mx-auto flex h-14 max-w-6xl items-center gap-x-3 px-4">
 					<Link to="/" className="shrink-0 text-lg font-bold">
 						{siteName}
 					</Link>
-					{/* 移动端:搜索框换行独占一行;桌面:居中单行 */}
-					<div className="relative order-last mt-2 w-full sm:order-none sm:mx-auto sm:mt-0 sm:max-w-md">
-						<Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-						<Input
-							value={keyword}
-							onChange={(e) => setKeyword(e.target.value)}
-							placeholder="搜索书签…"
-							className="pl-9"
-						/>
-					</div>
-					<div className="ml-auto flex shrink-0 items-center gap-1 sm:ml-0">
-						<ThemeToggle />
+					<div className="ml-auto flex shrink-0 items-center gap-1">
 						{auth?.authenticated ? (
 							<DropdownMenu>
 								<DropdownMenuTrigger asChild>
@@ -179,6 +186,42 @@ export default function Home() {
 			</header>
 
 			<main className="mx-auto max-w-6xl px-4 py-8">
+				{/* 搜索区:独立于 header,整体居中且限制宽度,语义上更聚焦 */}
+				<div className="mx-auto mb-8 flex max-w-2xl flex-col items-stretch gap-3 sm:flex-row sm:items-center">
+					<div className="relative flex-1">
+						<Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+						<Input
+							value={keyword}
+							onChange={(e) => {
+								const v = e.target.value;
+								setKeyword(v);
+								if (aiSearch && v.trim()) void runAISearch(v);
+							}}
+							onKeyDown={(e) => {
+								if (e.key === "Enter" && aiSearch && keyword.trim())
+									void runAISearch(keyword);
+							}}
+							placeholder={aiSearch ? "用自然语言搜索,如「CSS 工具」…" : "搜索书签…"}
+							className="pl-9"
+						/>
+						{aiLoading && (
+							<Loader2 className="absolute top-1/2 right-3 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+						)}
+					</div>
+					{aiConfig?.semanticSearch && (
+						<div className="flex shrink-0 items-center gap-1.5 rounded-md border bg-muted/30 px-3 py-2">
+							<Sparkles
+								className={`size-4 ${aiSearch ? "text-orange-500" : "text-muted-foreground"}`}
+							/>
+							<Switch
+								checked={aiSearch}
+								onCheckedChange={setAiSearch}
+								aria-label="AI 语义搜索"
+							/>
+							<span className="text-xs text-muted-foreground">AI 语义</span>
+						</div>
+					)}
+				</div>
 				{isLoading && (
 					<p className="py-20 text-center text-muted-foreground">加载中…</p>
 				)}
@@ -211,7 +254,11 @@ export default function Home() {
 				))}
 				{!isLoading && !isError && grouped.length === 0 && (
 					<p className="py-20 text-center text-muted-foreground">
-						{keyword ? "没有匹配的书签" : "还没有书签,登录后台添加吧"}
+						{aiActive
+							? "AI 没有找到相关书签,换个说法试试?"
+							: keyword
+								? "没有匹配的书签"
+								: "还没有书签,登录后台添加吧"}
 					</p>
 				)}
 			</main>

@@ -5,6 +5,7 @@ import { and, asc, desc, eq, like, or, sql } from "drizzle-orm";
 import { createDb, type Db } from "../db/client";
 import { bookmarks, bookmarkTags, categories, settings, tags } from "../db/schema";
 import type { AppEnv } from "../lib/types";
+import { extractJson, loadAISettings, runChat } from "../lib/ai";
 
 // 未登录只能看 public;登录后 public + private
 function visibleBookmarks(authed: boolean) {
@@ -74,6 +75,17 @@ export const publicRoutes = new Hono<AppEnv>()
 		const rows = await db.select().from(settings);
 		return c.json(Object.fromEntries(rows.map((r) => [r.key, r.value])));
 	})
+	// AI 可用性(公开,供前端决定是否显示语义搜索入口)
+	.get("/ai-config", async (c) => {
+		const db = createDb(c.env.DB);
+		const rows = await db
+			.select({ key: settings.key, value: settings.value })
+			.from(settings);
+		const map = new Map(rows.map((r) => [r.key, r.value]));
+		const enabled = map.get("ai.enabled") === "true";
+		const semantic = map.get("ai.features.semanticSearch") === "true";
+		return c.json({ aiEnabled: enabled, semanticSearch: enabled && semantic });
+	})
 	// 导航页数据:分类 + 书签(按登录态过滤,私密分类含子孙整体隐藏)
 	.get("/bookmarks", async (c) => {
 		const db = createDb(c.env.DB);
@@ -126,6 +138,69 @@ export const publicRoutes = new Hono<AppEnv>()
 				(b) => b.categoryId === null || allowed.has(b.categoryId),
 			);
 			return c.json({ bookmarks: await attachTags(db, visible) });
+		},
+	)
+	// AI 语义搜索:自然语言 → 关键词扩展 → 关键词搜索
+	.get(
+		"/search/semantic",
+		zValidator("query", z.object({ q: z.string().min(1).max(100) })),
+		async (c) => {
+			const db = createDb(c.env.DB);
+			const aiSettings = await loadAISettings(db);
+			if (!aiSettings.enabled || !aiSettings.features.semanticSearch) {
+				return c.json({ error: "AI 语义搜索未启用" }, 400);
+			}
+			const query = c.req.valid("query").q;
+			const authed = !!c.get("user");
+			// 用 LLM 把自然语言转成可搜索的关键词
+			const system =
+				"你是一个书签搜索引擎。请把用户的自然语言查询改写成用于搜索的关键词列表(从书签的标题、描述、URL、标签里最可能命中的词)。";
+			const user = `请以 JSON 数组返回 2-6 个关键词,不要包含其他内容:
+["关键词1", "关键词2"]
+
+查询: ${query}`;
+			let keywords: string[] = [query];
+			try {
+				const raw = await runChat(
+					c.env,
+					aiSettings,
+					[
+						{ role: "system", content: system },
+						{ role: "user", content: user },
+					],
+					"semanticSearch",
+					db,
+				);
+				const parsed = extractJson<{ keywords?: string[] } | string[]>(raw);
+				const list = Array.isArray(parsed) ? parsed : parsed.keywords ?? [];
+				if (list.length) keywords = list.filter(Boolean);
+			} catch {
+				// 转换失败则直接使用原始查询
+			}
+			// 关键词 OR 匹配,优先同时命中多个词的
+			const allCats = await db.select().from(categories);
+			const allowed = allowedCategoryIds(allCats, authed);
+			const rows = await db
+				.select(bookmarkColumns)
+				.from(bookmarks)
+				.where(visibleBookmarks(authed))
+				.orderBy(desc(bookmarks.clickCount));
+			const tagged = await attachTags(db, rows);
+			const needle = keywords.map((k) => k.toLowerCase());
+			const scored = tagged
+				.map((b) => {
+					const hay = [b.title, b.description ?? "", b.url, ...b.tags]
+						.join(" ")
+						.toLowerCase();
+					const hits = needle.filter((k) => hay.includes(k)).length;
+					return { b, hits };
+				})
+				.filter((x) => x.hits > 0)
+				.sort((a, b) => b.hits - a.hits)
+				.map((x) => x.b)
+				.filter((b) => b.categoryId === null || allowed.has(b.categoryId))
+				.slice(0, 50);
+			return c.json({ bookmarks: scored });
 		},
 	)
 	// 点击计数上报

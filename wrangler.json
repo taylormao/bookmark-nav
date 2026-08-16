@@ -23,5 +23,8 @@
 			"database_id": "REPLACE-WITH-YOUR-DATABASE-ID",
 			"migrations_dir": "./drizzle"
 		}
-	]
+	],
+	"ai": {
+		"binding": "AI"
+	}
 }

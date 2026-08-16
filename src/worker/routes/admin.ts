@@ -1,9 +1,16 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { asc, desc, eq, inArray } from "drizzle-orm";
+import { asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { createDb, type Db } from "../db/client";
-import { bookmarks, bookmarkTags, categories, settings, tags } from "../db/schema";
+import {
+	aiUsage,
+	bookmarks,
+	bookmarkTags,
+	categories,
+	settings,
+	tags,
+} from "../db/schema";
 import type { AppEnv } from "../lib/types";
 import { requireAuth } from "../middleware/auth";
 import {
@@ -12,6 +19,7 @@ import {
 	type ExportFolder,
 	type ParsedFolder,
 } from "../lib/netscape";
+import { extractJson, loadAISettings, runChat, testModel } from "../lib/ai";
 
 const idParam = zValidator("param", z.object({ id: z.coerce.number().int() }));
 const reorderSchema = z.object({ ids: z.array(z.number().int()).min(1) });
@@ -333,6 +341,137 @@ export const adminRoutes = new Hono<AppEnv>()
 			}
 		},
 	)
+	// ---------- AI 智能填充 ----------
+	.post(
+		"/metadata-ai",
+		zValidator("json", z.object({ url: z.string().url() })),
+		async (c) => {
+			const db = createDb(c.env.DB);
+			const aiSettings = await loadAISettings(db);
+			if (!aiSettings.enabled || !aiSettings.features.autoFill) {
+				return c.json({ error: "AI 自动填充未启用" }, 400);
+			}
+
+			const { url } = c.req.valid("json");
+			let meta: { title: string | null; description: string | null; icon: string | null };
+			try {
+				meta = await fetchMetadata(url);
+			} catch {
+				return c.json({ error: "抓取失败,请检查网址是否可访问" }, 422);
+			}
+
+			const pageText = [meta.title, meta.description].filter(Boolean).join("\n");
+			const categoryNames = (await db.select({ name: categories.name }).from(categories))
+				.map((r) => r.name);
+			const system =
+				"你是一个书签整理助手。请根据用户提供的网页 URL 和页面信息，提取或补全书签信息。";
+			const user = `请为以下网页生成书签信息，以 JSON 格式返回，不要包含其他内容：
+{
+  "title": "简短准确的标题",
+  "description": "一句话中文描述（不超过 80 字）",
+  "tags": ["标签1", "标签2", "标签3"],
+  "icon": "favicon 地址，通常为 /favicon.ico 或绝对 URL",
+  "category": "最合适的分类名称（必须是给定分类之一，没有合适的则填 null）"
+}
+
+可选分类（只能从下列选择，无法确定时填 null）：
+${categoryNames.length ? categoryNames.join("、") : "（暂无分类）"}
+
+URL: ${url}
+页面信息：
+${pageText || "（无）"}`;
+
+			try {
+				const raw = await runChat(
+					c.env,
+					aiSettings,
+					[
+						{ role: "system", content: system },
+						{ role: "user", content: user },
+					],
+					"autoFill",
+					db,
+				);
+				const parsed = extractJson<{
+					title?: string;
+					description?: string;
+					tags?: string[];
+					icon?: string;
+					category?: string | null;
+				}>(raw);
+				// 将 AI 推荐的分类名映射到已有分类 id
+				let categoryId: number | null = null;
+				if (parsed.category) {
+					const matched = (await db.select().from(categories)).find(
+						(c) => c.name === parsed.category,
+					);
+					categoryId = matched ? matched.id : null;
+				}
+				return c.json({
+					title: parsed.title || meta.title,
+					description: parsed.description || meta.description,
+					icon: parsed.icon || meta.icon,
+					tags: Array.isArray(parsed.tags) ? parsed.tags.filter(Boolean) : [],
+					categoryId,
+				});
+			} catch (err) {
+				console.error("AI metadata error:", err);
+				return c.json(
+					{
+						error: "AI 分析失败，已回退到普通抓取结果",
+						title: meta.title,
+						description: meta.description,
+						icon: meta.icon,
+						tags: [],
+					},
+					500,
+				);
+			}
+		},
+	)
+	// ---------- AI 智能标签推荐 ----------
+	.post(
+		"/suggest-tags",
+		zValidator(
+			"json",
+			z.object({ title: z.string(), description: z.string().optional(), url: z.string().optional() }),
+		),
+		async (c) => {
+			const db = createDb(c.env.DB);
+			const aiSettings = await loadAISettings(db);
+			if (!aiSettings.enabled || !aiSettings.features.tagSuggest) {
+				return c.json({ error: "AI 标签推荐未启用" }, 400);
+			}
+			const { title, description, url } = c.req.valid("json");
+			const system =
+				"你是一个书签标签助手。请根据书签的标题、描述和链接,推荐 3-5 个简短的中文标签。";
+			const user = `请以 JSON 格式返回标签数组,不要包含其他内容:
+["标签1", "标签2", "标签3"]
+
+标题: ${title}
+描述: ${description || "（无）"}
+链接: ${url || "（无）"}`;
+
+			try {
+				const raw = await runChat(
+					c.env,
+					aiSettings,
+					[
+						{ role: "system", content: system },
+						{ role: "user", content: user },
+					],
+					"tagSuggest",
+					db,
+				);
+				const parsed = extractJson<{ tags?: string[] } | string[]>(raw);
+				const tags = Array.isArray(parsed) ? parsed : parsed.tags ?? [];
+				return c.json({ tags: tags.filter(Boolean).slice(0, 5) });
+			} catch (err) {
+				console.error("AI suggest-tags error:", err);
+				return c.json({ error: "AI 标签推荐失败" }, 500);
+			}
+		},
+	)
 	// ---------- 导入导出(Netscape Bookmark HTML,兼容 Chrome/Edge/Firefox/Safari) ----------
 	.post(
 		"/import",
@@ -464,6 +603,149 @@ export const adminRoutes = new Hono<AppEnv>()
 			return c.json({ results });
 		},
 	)
+	// ---------- AI 自动分类建议 ----------
+	.post(
+		"/suggest-category",
+		zValidator(
+			"json",
+			z.object({ title: z.string(), description: z.string().optional(), url: z.string().optional() }),
+		),
+		async (c) => {
+			const db = createDb(c.env.DB);
+			const aiSettings = await loadAISettings(db);
+			if (!aiSettings.enabled || !aiSettings.features.autoCategorize) {
+				return c.json({ error: "AI 自动分类未启用" }, 400);
+			}
+			const { title, description, url } = c.req.valid("json");
+			const cats = await db.select().from(categories);
+			const catList = cats.map((c) => c.name).join("、");
+			const system =
+				"你是一个书签分类助手。请根据书签信息,从给定的分类列表中选择最合适的一个(或返回 new 表示建议新建)。";
+			const user = `请以 JSON 格式返回,不要包含其他内容:
+{ "category": "分类名称 或 new", "reason": "一句话理由" }
+
+可选分类: ${catList || "（暂无分类）"}
+标题: ${title}
+描述: ${description || "（无）"}
+链接: ${url || "（无）"}`;
+
+			try {
+				const raw = await runChat(
+					c.env,
+					aiSettings,
+					[
+						{ role: "system", content: system },
+						{ role: "user", content: user },
+					],
+					"autoCategorize",
+					db,
+				);
+				const parsed = extractJson<{ category?: string; reason?: string }>(raw);
+				const name = (parsed.category ?? "").trim();
+				const matched = cats.find((c) => c.name === name);
+				return c.json({
+					categoryId: matched ? matched.id : null,
+					categoryName: matched ? matched.name : name === "new" ? null : name || null,
+					isNew: name === "new" || !matched,
+					reason: parsed.reason ?? "",
+				});
+			} catch (err) {
+				console.error("AI suggest-category error:", err);
+				return c.json({ error: "AI 分类建议失败" }, 500);
+			}
+		},
+	)
+	// ---------- AI 死链修复建议 ----------
+	.post(
+		"/repair-link",
+		zValidator("json", z.object({ title: z.string(), url: z.string().url() })),
+		async (c) => {
+			const db = createDb(c.env.DB);
+			const aiSettings = await loadAISettings(db);
+			if (!aiSettings.enabled || !aiSettings.features.deadLinkRepair) {
+				return c.json({ error: "AI 死链修复未启用" }, 400);
+			}
+			const { title, url } = c.req.valid("json");
+			const system =
+				"你是一个死链修复助手。给定已失效的书签,请推断最可能的有效替代链接。";
+			const user = `请以 JSON 格式返回,不要包含其他内容:
+{
+  "alternative": "推断的新链接(或 null)",
+  "wayback": "https://web.archive.org/web/2024/原链接 的存档地址",
+  "reason": "一句话说明"
+}
+
+标题: ${title}
+原链接: ${url}`;
+
+			try {
+				const raw = await runChat(
+					c.env,
+					aiSettings,
+					[
+						{ role: "system", content: system },
+						{ role: "user", content: user },
+					],
+					"deadLinkRepair",
+					db,
+				);
+				const parsed = extractJson<{ alternative?: string | null; wayback?: string; reason?: string }>(raw);
+				return c.json({
+					alternative: parsed.alternative ?? null,
+					wayback: parsed.wayback ?? `https://web.archive.org/web/2024/${url}`,
+					reason: parsed.reason ?? "",
+				});
+			} catch (err) {
+				console.error("AI repair-link error:", err);
+				return c.json({ error: "AI 死链修复失败" }, 500);
+			}
+		},
+	)
+	// ---------- AI 内容摘要 ----------
+	.post(
+		"/summarize",
+		zValidator(
+			"json",
+			z.object({
+				title: z.string(),
+				description: z.string().optional(),
+				url: z.string().optional(),
+			}),
+		),
+		async (c) => {
+			const db = createDb(c.env.DB);
+			const aiSettings = await loadAISettings(db);
+			if (!aiSettings.enabled || !aiSettings.features.summary) {
+				return c.json({ error: "AI 内容摘要未启用" }, 400);
+			}
+			const { title, description, url } = c.req.valid("json");
+			const system =
+				"你是一个书签摘要助手。请用一句话(不超过 40 字)用中文概括书签内容要点。";
+			const user = `请直接返回摘要文本,不要包含引号或任何其他内容。
+
+标题: ${title}
+描述: ${description || "（无）"}
+链接: ${url || "（无）"}`;
+
+			try {
+				const raw = await runChat(
+					c.env,
+					aiSettings,
+					[
+						{ role: "system", content: system },
+						{ role: "user", content: user },
+					],
+					"summary",
+					db,
+				);
+				const summary = raw.trim().replace(/^["'「]|["'」]$/g, "").trim();
+				return c.json({ summary });
+			} catch (err) {
+				console.error("AI summarize error:", err);
+				return c.json({ error: "AI 摘要生成失败" }, 500);
+			}
+		},
+	)
 	// ---------- 标签 ----------
 	.get("/tags", async (c) => {
 		const db = createDb(c.env.DB);
@@ -488,4 +770,95 @@ export const adminRoutes = new Hono<AppEnv>()
 			}
 			return c.json({ ok: true });
 		},
-	);
+	)
+	// ---------- AI 连接检测(用表单临时值,不依赖已保存设置) ----------
+	.post("/ai-test", async (c) => {
+		try {
+			const body = await c.req.json<{
+				provider: "builtin" | "custom";
+				apiEndpoint?: string;
+				apiKey?: string;
+				model: string;
+			}>();
+			if (body.provider !== "builtin" && body.provider !== "custom") {
+				return c.json({ ok: false, error: "provider 不合法" }, 400);
+			}
+			const result = await testModel(c.env, body);
+			if (result.ok) return c.json({ ok: true });
+			return c.json({ ok: false, error: result.error }, 400);
+		} catch (err) {
+			return c.json({ ok: false, error: err instanceof Error ? err.message : String(err) }, 400);
+		}
+	})
+	// ---------- AI 用量概览(免费额度防刷 + 自定义 API 防滥用) ----------
+	.get("/ai-usage", async (c) => {
+		const db = createDb(c.env.DB);
+		const sinceToday = sql`(unixepoch() - unixepoch(created_at)) < 86400`;
+		// 今日总调用 / 成功 / 失败
+		const [todayAgg] = await db
+			.select({
+				total: sql<number>`count(*)`,
+				success: sql<number>`sum(success)`,
+				avgDuration: sql<number>`avg(duration_ms)`,
+			})
+			.from(aiUsage)
+			.where(sinceToday);
+		// 今日按功能分布
+		const byFeature = await db
+			.select({
+				feature: aiUsage.feature,
+				total: sql<number>`count(*)`,
+				success: sql<number>`sum(success)`,
+			})
+			.from(aiUsage)
+			.where(sinceToday)
+			.groupBy(aiUsage.feature);
+		// 今日按 provider 分布
+		const byProvider = await db
+			.select({
+				provider: aiUsage.provider,
+				total: sql<number>`count(*)`,
+			})
+			.from(aiUsage)
+			.where(sinceToday)
+			.groupBy(aiUsage.provider);
+		// 最近失败记录(含错误原因,便于排查 429 / Key 失效)
+		const recentErrors = await db
+			.select({
+				feature: aiUsage.feature,
+				provider: aiUsage.provider,
+				error: aiUsage.error,
+				createdAt: aiUsage.createdAt,
+			})
+			.from(aiUsage)
+			.where(sql`${sinceToday} and success = 0`)
+			.orderBy(desc(aiUsage.createdAt))
+			.limit(20);
+
+		const success = Number(todayAgg?.success ?? 0);
+		const total = Number(todayAgg?.total ?? 0);
+		return c.json({
+			today: {
+				total,
+				success,
+				failed: total - success,
+				successRate: total > 0 ? Math.round((success / total) * 100) : 100,
+				avgDurationMs: todayAgg?.avgDuration ? Math.round(Number(todayAgg.avgDuration)) : 0,
+			},
+			byFeature: byFeature.map((r) => ({
+				feature: r.feature,
+				total: Number(r.total),
+				success: Number(r.success),
+			})),
+			byProvider: byProvider.map((r) => ({
+				provider: r.provider,
+				total: Number(r.total),
+			})),
+			recentErrors: recentErrors.map((r) => ({
+				feature: r.feature,
+				provider: r.provider,
+				error: r.error,
+				createdAt: r.createdAt.getTime(),
+			})),
+		});
+	});

@@ -53,7 +53,9 @@ Bookmark Nav 配套浏览器插件，支持一键将当前页面保存到你的 
 
 在你 fork 的仓库页面点 **Sync fork → Update branch**,同步后 Cloudflare 自动重新构建部署,完成。
 
-你的书签数据存在自己账号的 D1 里,更新代码不会影响数据;若新版本包含数据库变更,部署时会自动执行增量迁移(`deploy` 脚本内置 `wrangler d1 migrations apply`)。
+
+
+> 注意:`deploy` 脚本中的 `db:migrate` 使用的库名(`bookmark-nav-db`)与 `wrangler.json` 的 `database_name` 保持一致。若你改过该名称,请相应调整命令中的库名。
 
 ## 本地开发
 
