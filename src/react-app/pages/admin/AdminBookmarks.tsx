@@ -85,6 +85,8 @@ function BookmarkDialog({
 	const fetchMeta = useFetchMetadata();
 	const fetchMetaAI = useFetchMetadataAI();
 	const [form, setForm] = useState<BookmarkPayload>({ title: "", url: "" });
+	// 标签输入框使用独立文本状态,避免受控值反复 join/split 把逗号吃掉
+	const [tagsText, setTagsText] = useState("");
 	const flatCats = flattenCategoryTree(categories);
 
 	// 弹窗打开时同步表单初始值(open 由父组件控制,不能依赖 onOpenChange 回调)
@@ -104,6 +106,7 @@ function BookmarkDialog({
 					}
 				: { title: "", url: "", visibility: "public" },
 		);
+		setTagsText(bookmark?.tags?.join(", ") ?? "");
 	}, [open, bookmark]);
 
 	async function handleFetchMeta() {
@@ -120,20 +123,28 @@ function BookmarkDialog({
 	async function handleFetchMetaAI() {
 		if (!form.url) return;
 		const meta = await fetchMetaAI.mutateAsync(form.url);
+		const aiTags = form.tags?.length ? form.tags : meta.tags;
 		setForm((f) => ({
 			...f,
 			title: f.title || meta.title || "",
 			description: f.description || meta.description,
 			icon: f.icon || meta.icon,
-			tags: f.tags?.length ? f.tags : meta.tags,
+			tags: aiTags,
 			categoryId: f.categoryId != null ? f.categoryId : (meta.categoryId ?? null),
 		}));
+		// AI 填充的标签同步回输入框文本,保持与 form.tags 一致
+		if (!form.tags?.length) setTagsText(meta.tags.join(", "));
 	}
 
 
 	async function handleSubmit(e: FormEvent) {
 		e.preventDefault();
-		await save.mutateAsync({ id: bookmark?.id, data: form });
+		// 提交时把输入框文本按中英文逗号解析成标签数组
+		const tags = tagsText
+			.split(/[,，]/)
+			.map((t) => t.trim())
+			.filter(Boolean);
+		await save.mutateAsync({ id: bookmark?.id, data: { ...form, tags } });
 		onOpenChange(false);
 	}
 
@@ -219,21 +230,13 @@ function BookmarkDialog({
 							</Select>
 							</div>
 							<div className="space-y-2">
-							<Label htmlFor="bm-tags">标签(逗号分隔)</Label>
-							<Input
-								id="bm-tags"
-								value={(form.tags ?? []).join(", ")}
-								onChange={(e) =>
-									setForm({
-										...form,
-										tags: e.target.value
-											.split(/[,，]/)
-											.map((t) => t.trim())
-											.filter(Boolean),
-									})
-								}
-								placeholder="工具, 文档"
-							/>
+						<Label htmlFor="bm-tags">标签(中英文逗号分隔,如「工具, 文档」)</Label>
+						<Input
+							id="bm-tags"
+							value={tagsText}
+							onChange={(e) => setTagsText(e.target.value)}
+							placeholder="工具, 文档"
+						/>
 							</div>
 							</div>
 					<div className="space-y-2">
