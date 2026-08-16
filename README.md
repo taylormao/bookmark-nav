@@ -52,7 +52,7 @@ Bookmark Nav 配套浏览器插件，支持一键将当前页面保存到你的 
 
 ## 更新版本
 
-在你 fork 的仓库页面点 **Sync fork → Update branch**,同步后 Cloudflare 自动重新构建部署,完成。
+推送(push)到 `main` 分支会自动触发 `.github/workflows/deploy.yml` 运行 `wrangler deploy` 完成部署——包括通过 GitHub **Sync fork** 同步产生的 push。部署所需的密钥请在仓库 **Settings → Secrets and variables → Actions** 中配置(见上方构建变量说明中的 `D1_DATABASE_ID` 与 `JWT_SECRET`,以及 Cloudflare 的 `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`)。
 
 
 
