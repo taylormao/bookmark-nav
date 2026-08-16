@@ -54,6 +54,19 @@ Bookmark Nav 配套浏览器插件，支持一键将当前页面保存到你的 
 
 推送(push)到 `main` 分支会自动触发 `.github/workflows/deploy.yml` 运行 `wrangler deploy` 完成部署——包括通过 GitHub **Sync fork** 同步产生的 push。部署所需的密钥请在仓库 **Settings → Secrets and variables → Actions** 中配置(见上方构建变量说明中的 `D1_DATABASE_ID` 与 `JWT_SECRET`,以及 Cloudflare 的 `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`)。
 
+### 部署所需的 GitHub Secrets
+
+仓库 **Settings → Secrets and variables → Actions** 需添加以下 4 个 *repository secret*,GitHub Actions 才能调用 Wrangler 完成部署:
+
+| Secret | 说明 | 取值来源 |
+| --- | --- | --- |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API Token,需 **Workers Scripts:Edit** + **D1:Edit** 权限 | Cloudflare 头像 → My Profile → API Tokens → Create Token(用 “Edit Cloudflare Workers” 模板,账户级) |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账户 ID | Cloudflare Dashboard 右侧栏 “Account ID” |
+| `D1_DATABASE_ID` | D1 数据库 ID,**需与上方构建变量一致** | 同上方构建变量 `D1_DATABASE_ID`(即 bookmark-nav-db 的 database_id) |
+| `JWT_SECRET` | 登录会话签名密钥,**需与上方构建变量完全一致**,否则所有已登录会话失效 | 同上方构建变量 `JWT_SECRET` |
+
+> 若用 Cloudflare 自带的 GitHub 集成(Workers Builds)部署,这 4 个值同样需要填到 Cloudflare 的构建变量 / 环境变量中;两种部署方式二选一即可,不要重复配置导致密钥不一致。
+
 
 
 > 注意:`deploy` 脚本中的 `db:migrate` 使用的库名(`bookmark-nav-db`)与 `wrangler.json` 的 `database_name` 保持一致。若你改过该名称,请相应调整命令中的库名。
