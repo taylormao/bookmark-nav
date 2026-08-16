@@ -1,0 +1,49 @@
+name: Deploy to Cloudflare
+
+# 通过 GitHub Actions 直接调用 Wrangler 部署,绕过 Cloudflare 的 GitHub webhook
+# (webhook 集成已失效,连直接 push 都不触发构建)。
+# 任何 push 到 main 都会自动跑;也可在 Actions 页面手动 Run workflow。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 避免重复部署:同一条分支的新 push 会取消进行中的旧部署
+concurrency:
+  group: deploy-cloudflare
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # 仅读取仓库内容,不写回,默认 GITHUB_TOKEN 权限足够
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # prepare-deploy-config.mjs 会读取这两个变量并写进 wrangler.json
+      # (d1_databases[0].database_id 和 vars.JWT_SECRET)
+      - name: Build (注入 D1 + JWT 配置)
+        env:
+          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: npm run build
+
+      # npm run deploy = wrangler d1 migrations apply ... --remote && wrangler deploy
+      # wrangler 自动从环境变量读取 CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID
+      - name: Deploy to Cloudflare Workers
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npm run deploy
