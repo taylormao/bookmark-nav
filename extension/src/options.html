@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>书签管理助手 - 设置</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body {
+      width: 100%;
+      max-width: 720px;
+      margin: 40px auto;
+      padding: 0 20px;
+    }
+    .settings-container {
+      background: rgba(255,255,255,0.9);
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 20px 60px rgba(15, 23, 42, 0.15);
+    }
+    body.dark .settings-container {
+      background: rgba(30, 41, 59, 0.9);
+    }
+    .logo {
+      text-align: center;
+      margin-bottom: 16px;
+    }
+    .logo img {
+      width: 64px;
+      height: 64px;
+    }
+    h1 {
+      text-align: center;
+      font-size: 24px;
+      margin: 0 0 8px;
+    }
+    .subtitle {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 14px;
+      margin-bottom: 32px;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .help-text {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 6px;
+      line-height: 1.4;
+    }
+    .button-full {
+      width: 100%;
+    }
+    .connection-status {
+      margin-top: 20px;
+      padding: 16px;
+      border-radius: 10px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .status-connected {
+      background: rgba(198, 246, 213, 0.8);
+      color: #22543d;
+    }
+    .status-disconnected {
+      background: rgba(254, 215, 215, 0.85);
+      color: #742a2a;
+    }
+    .divider {
+      height: 1px;
+      background: rgba(148, 163, 184, 0.2);
+      margin: 32px 0;
+    }
+    .section-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="settings-container">
+    <div class="logo">
+      <img src="icons/icon-128.png" alt="书签管理助手">
+    </div>
+    <h1>书签管理助手</h1>
+    <p class="subtitle">Bookmark Manager Extension</p>
+
+    <div class="section">
+      <div class="section-title">服务器配置</div>
+      <form id="settings-form">
+        <div class="form-group">
+          <label for="server-url">服务器地址 *</label>
+          <input 
+            type="url" 
+            id="server-url" 
+            placeholder="https://your-bookmark-site.pages.dev" 
+            required
+          >
+          <div class="help-text">
+            输入你的书签管理系统部署地址（不要在末尾添加斜杠）
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="username">用户名 *</label>
+          <input 
+            type="text" 
+            id="username" 
+            placeholder="admin" 
+            required
+            autocomplete="username"
+          >
+        </div>
+
+        <div class="form-group">
+          <label for="password">密码 *</label>
+          <input 
+            type="password" 
+            id="password" 
+            placeholder="请输入密码" 
+            required
+            autocomplete="current-password"
+          >
+          <div class="help-text">
+            密码会在登录后清除，只保存认证令牌
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 20px;">
+          <div class="checkbox-group">
+            <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="auto-renew" style="margin-top: 2px;">
+              <span style="flex: 1;">
+                <strong>自动续期</strong>
+                <div class="help-text" style="margin-top: 4px;">
+                  启用后，token 即将过期时会自动重新登录，无需手动操作。密码将加密保存在本地。
+                </div>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <button type="submit" class="button button-primary button-full" id="login-btn">
+          <span id="login-text">登录并保存</span>
+        </button>
+      </form>
+
+      <div id="connection-status" class="connection-status hidden"></div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="section">
+      <div class="section-title">当前状态</div>
+      <div id="current-status">
+        <p id="status-info" class="help-text">正在检查...</p>
+      </div>
+      <button type="button" class="button button-secondary button-full" id="logout-btn" style="display:none; margin-top:12px;">
+        登出
+      </button>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="section">
+      <div class="section-title">使用说明</div>
+      <div class="help-text" style="line-height: 1.6;">
+        <p style="margin: 8px 0;">1. 输入书签管理系统的服务器地址</p>
+        <p style="margin: 8px 0;">2. 使用你的管理员账号密码登录</p>
+        <p style="margin: 8px 0;">3. 浏览网页时，点击扩展图标即可快速保存书签</p>
+        <p style="margin: 8px 0;">4. 右键菜单也支持快速添加书签</p>
+        <p style="margin: 8px 0;">5. 认证令牌有效期为15分钟，启用"自动续期"后会自动刷新，无需手动重新登录</p>
+      </div>
+    </div>
+  </div>
+  <script src="dnr-auth.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>添加书签</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="header-title">
+        <img src="icons/icon-32.png" alt="书签" class="header-icon">
+        <h2>添加书签</h2>
+      </div>
+      <button type="button" id="settings-btn" class="settings-text-btn" title="设置">设置</button>
+    </div>
+
+    <div id="auth-section" class="section hidden">
+      <p class="info-text">请先登录到书签管理系统</p>
+      <button id="goto-options" class="button button-primary">前往设置</button>
+    </div>
+
+    <div id="form-section" class="section hidden">
+      <form id="bookmark-form">
+        <div class="form-group">
+          <label for="title">标题 *</label>
+          <input type="text" id="title" required placeholder="网页标题">
+        </div>
+
+        <div class="form-group">
+          <label for="url">URL *</label>
+          <input type="url" id="url" required placeholder="https://example.com">
+        </div>
+
+        <div class="form-group">
+          <label for="description">描述</label>
+          <textarea id="description" rows="3" placeholder="可选的描述信息"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="category">分类 *</label>
+          <select id="category" required>
+            <option value="">选择分类...</option>
+          </select>
+        </div>
+
+        <div class="form-group checkbox-group">
+          <label>
+            <input type="checkbox" id="is-private">
+            <span>私密书签（仅登录后可见）</span>
+          </label>
+        </div>
+
+        <div class="button-group">
+          <button type="submit" class="button button-primary" id="save-btn">
+            <span id="save-text">保存书签</span>
+          </button>
+        </div>
+      </form>
+
+      <div id="status-message" class="status-message hidden"></div>
+    </div>
+
+    <div id="loading-section" class="section loading-section">
+      <div class="spinner"></div>
+      <p>加载中...</p>
+    </div>
+  </div>
+  <script src="dnr-auth.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

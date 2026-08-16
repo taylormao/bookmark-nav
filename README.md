@@ -22,17 +22,18 @@ Bookmark Nav 配套浏览器插件，支持一键将当前页面保存到你的 
 - 点击插件图标弹出面板，快速添加当前页面为书签
 - 自动填充标题、URL、页面图标
 - 支持选择分类和设置公开/私密可见性
-- 与 Bookmark Nav 后端无缝配合，通过 Cookie 认证
+- Token 自动续期，加密存储登录凭据
+- 通过 `declarativeNetRequest` 在网络层注入鉴权 Cookie，兼容 Chrome 最新安全策略
 
 ### 安装
 
-1. 下载插件包：[bookmark-nav-extension-v2.0.0.zip](./extension/bookmark-nav-extension-v2.0.0.zip) 并解压到本地目录
+1. 下载插件包：[bookmark-nav-extension-v1.6.6.zip](./extension/bookmark-nav-extension-v1.6.6.zip) 并解压到本地目录
 2. 打开 Chrome/Edge 浏览器，进入 `chrome://extensions`（或 `edge://extensions`）
 3. 开启右上角 **开发者模式**
 4. 点击 **加载已解压的扩展程序**，选择解压后的文件夹
 5. 点击插件图标，在弹出面板中登录你的 Bookmark Nav 账号即可使用
 
-> 插件通过 `credentials: 'include'` 自动携带认证 Cookie，无需手动配置 Token。
+> **v1.6.6 修复说明**：Chrome 近期版本严格执行 Fetch API 禁止头名限制，手动设置 `Cookie` 头会被静默剥离导致鉴权失败（401）。本版本改用 `declarativeNetRequest` API 在网络层注入 Cookie，彻底解决此问题。
 
 ## 部署
 
